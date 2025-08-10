@@ -1,0 +1,52 @@
+{
+  "$schema": "https://smapi.io/schemas/content-patcher.json",
+  "Format": "2.7.0",
+  "Changes": [
+    // The actual full syntax is:
+    // <Portrait> [SpeakerName] [trimDelim]🐬rest of the dialogue etc...
+    // - Portrait: portrait asset
+    // - DisplayName: speaker name, can use tokenized text like [LocalizedText Strings\\NPCNames:Krobus], defaults to ??? if not given
+    // - TrimDelim: optional first delimiter to trim to,
+    //              everything before first instance of this delimiter will be discarded
+    // This is primarily for usage with content patcher text operation Prepend on string assets, like so:
+    {
+      "Action": "EditData",
+      "Target": "Strings/StringsFromMaps",
+      "TextOperations": [
+        {
+          "Operation": "Prepend",
+          "Target": [
+            "Entries",
+            "Hospital.7"
+          ],
+          "Value": "Portraits/Krobus_Trenchcoat NotAPlant",
+          "Delimiter": "🐬"
+        }
+      ]
+    },
+    {
+      "Action": "EditData",
+      "Target": "Strings/Locations",
+      "TextOperations": [
+        {
+          "Operation": "Prepend",
+          "Target": [
+            "Entries",
+            "Gourmand_Intro"
+          ],
+          "Value": "Characters/Gourmand Gourmand",
+          "Delimiter": "🐬"
+        },
+        {
+          "Operation": "Prepend",
+          "Target": [
+            "Entries",
+            "Beach_Mariner_PlayerMarried",
+          ],
+          "Value": "LooseSprites/temporary_sprites_1 \"Old Mariner\" :",
+          "Delimiter": "🐬"
+        }
+      ]
+    }
+  ]
+}
