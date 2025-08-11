@@ -24,8 +24,15 @@ public sealed class ModEntry : Mod
     public const string ModId = "mushymato.PortraitsForAll";
 
     /// <summary>Delimiter for PortraitsForAll metadata/summary>
-    public const string Delim = "🐬";
-    public static readonly int DelimWidth = Delim.AsSpan().Length;
+    public const string PrefixDelim = "🐬";
+    public static readonly int PrefixDelimWidth = PrefixDelim.AsSpan().Length;
+
+    /// <summary>When this is the first argument, use the second argument to grab the npc/summary>
+    public const string NPCRef = "🎣";
+    public static readonly int NPCRefWidth = NPCRef.AsSpan().Length;
+
+    /// <summary>When this is the second argument, use the trimmed string from the trim delim as display name./summary>
+    public const string NameFromTrim = "@";
 
     /// <summary>Default NPC display name</summary>
     private const string QQQ = "???";
@@ -98,7 +105,7 @@ public sealed class ModEntry : Mod
         foreach (string dialogue in __instance.dialogues)
         {
             span = dialogue.Replace(Environment.NewLine, "").AsSpan();
-            if ((idx = span.IndexOf(Delim)) <= 1)
+            if ((idx = span.IndexOf(PrefixDelim)) <= 1)
             {
                 continue;
             }
@@ -107,12 +114,12 @@ public sealed class ModEntry : Mod
                 !ArgUtility.TryGet(
                     args,
                     0,
-                    out string portraitAsset,
+                    out string speakerRef,
                     out string error,
                     allowBlank: false,
-                    name: "string portraitAsset"
+                    name: "string speakerRef"
                 )
-                || !ArgUtility.TryGetOptional(
+                || !ArgUtility.TryGet(
                     args,
                     1,
                     out string? speakerName,
@@ -133,17 +140,31 @@ public sealed class ModEntry : Mod
                 Log(error, LogLevel.Warn);
                 continue;
             }
-            if (!Game1.content.DoesAssetExist<Texture2D>(portraitAsset))
+
+            Texture2D? portrait;
+            string? displayName = null;
+            if (speakerRef == NPCRef)
             {
-                Log($"Portrait '{portraitAsset}' is invalid", LogLevel.Warn);
+                NPC? realNPC = Game1.getCharacterFromName<NPC>(speakerName);
+                if (realNPC == null)
+                {
+                    Log($"Failed to find NPC '{speakerName}'", LogLevel.Warn);
+                    continue;
+                }
+                portrait = realNPC.Portrait;
+                displayName = realNPC.getName();
+            }
+            else if (Game1.content.DoesAssetExist<Texture2D>(speakerRef))
+            {
+                portrait = Game1.content.Load<Texture2D>(speakerRef);
+                if (speakerName != NameFromTrim)
+                    displayName = TokenParser.ParseText(speakerName);
+            }
+            else
+            {
+                Log($"Portrait '{speakerRef}' is invalid", LogLevel.Warn);
                 continue;
             }
-
-            NPC speaker = SpeakerNPC.Value;
-            speaker.Name = QQQ;
-            speaker.displayName = TokenParser.ParseText(speakerName) ?? QQQ;
-            speaker.CurrentDialogue.Clear();
-            portraitField.SetValue(speaker, Game1.content.Load<Texture2D>(portraitAsset));
 
             StringBuilder sb = SB.Value;
             sb.Clear();
@@ -151,15 +172,25 @@ public sealed class ModEntry : Mod
             foreach (string dlog in __instance.dialogues)
             {
                 span = dlog.Replace(Environment.NewLine, "").AsSpan();
-                if ((trimIdx = span.IndexOf(Delim)) > -1)
-                    span = span[(trimIdx + DelimWidth)..];
+                if ((trimIdx = span.IndexOf(PrefixDelim)) > -1)
+                    span = span[(trimIdx + PrefixDelimWidth)..];
                 if (trimDelim != null && (trimIdx = span.IndexOf(trimDelim)) > -1)
+                {
+                    displayName ??= span[..trimIdx].ToString();
                     span = span[(trimIdx + trimDelim.AsSpan().Length)..];
+                }
                 sb.Append(span.Trim());
                 sb.Append("#$b#");
             }
             sb.Remove(sb.Length - 4, 4);
             string final = sb.ToString();
+
+            NPC speaker = SpeakerNPC.Value;
+            speaker.Name = QQQ;
+            speaker.CurrentDialogue.Clear();
+            portraitField.SetValue(speaker, portrait);
+            speaker.displayName = displayName;
+
 #if DEBUG
             Log($"Convert: '{string.Join(',', __instance.dialogues)}' -> '{final}'");
 #endif

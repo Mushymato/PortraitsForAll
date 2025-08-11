@@ -16,7 +16,7 @@
     <Description>Portraits for all message boxes.</Description>
     <UniqueId>mushymato.PortraitsForAll</UniqueId>
     <UpdateKeys>GitHub:Mushymato/PortraitsForAll</UpdateKeys>
-    <Version>1.0.0</Version>
+    <Version>1.1.0</Version>
     <MinimumApiVersion_Behavior>UpdateFull</MinimumApiVersion_Behavior>
     <MinimumGameVersion_Behavior>UpdateFull</MinimumGameVersion_Behavior>
     <Dependencies_VersionBehavior>UpdateFull</Dependencies_VersionBehavior>

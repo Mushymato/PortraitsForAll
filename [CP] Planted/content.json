@@ -3,9 +3,14 @@
   "Format": "2.7.0",
   "Changes": [
     // The actual full syntax is:
-    // <Portrait> [SpeakerName] [trimDelim]🐬rest of the dialogue etc...
-    // - Portrait: portrait asset
-    // - DisplayName: speaker name, can use tokenized text like [LocalizedText Strings\\NPCNames:Krobus], defaults to ??? if not given
+    // <Portrait OR 🎣> <SpeakerName OR NPCInternalName> [TrimDelim]🐬rest of the dialogue etc...
+    // - Portrait: portrait asset OR 🎣
+    // - SpeakerName (Arg1!=🎣): speaker name
+    //      can use tokenized text like [CharacterName Krobus]
+    //      can use @ to take content before trim delim
+    //      defaults to ??? if not given
+    // - NPCInternalName (Arg1==🎣): npc internal name
+    //      fetches the actual NPC instance and try to get portrait + name from them
     // - TrimDelim: optional first delimiter to trim to,
     //              everything before first instance of this delimiter will be discarded
     // This is primarily for usage with content patcher text operation Prepend on string assets, like so:
@@ -13,16 +18,26 @@
       "Action": "EditData",
       "Target": "Strings/StringsFromMaps",
       "TextOperations": [
+        // {
+        //   "Operation": "Prepend",
+        //   "Target": [
+        //     "Entries",
+        //     "Hospital.7"
+        //   ],
+        //   "Value": "Portraits/Krobus_Trenchcoat NotAPlant",
+        //   "Delimiter": "🐬"
+        // }
         {
           "Operation": "Prepend",
           "Target": [
             "Entries",
             "Hospital.7"
           ],
-          "Value": "Portraits/Krobus_Trenchcoat NotAPlant",
+          "Value": "🎣 Harvey",
           "Delimiter": "🐬"
         }
-      ]
+      ],
+      "Priority": "Late+100"
     },
     {
       "Action": "EditData",
@@ -43,10 +58,11 @@
             "Entries",
             "Beach_Mariner_PlayerMarried",
           ],
-          "Value": "LooseSprites/temporary_sprites_1 \"Old Mariner\" :",
+          "Value": "LooseSprites/temporary_sprites_1 @ :",
           "Delimiter": "🐬"
         }
-      ]
+      ],
+      "Priority": "Late+100"
     }
   ]
 }
