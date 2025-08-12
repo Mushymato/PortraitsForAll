@@ -69,6 +69,15 @@
           ],
           "Value": "\"Characters/Monsters/Shadow Shaman\" NotJinu",
           "Delimiter": "🐬"
+        },
+        {
+          "Operation": "Prepend",
+          "Target": [
+            "Entries",
+            "Club_ClubSeller_NotEnoughMoney",
+          ],
+          "Value": "\"Characters/Monsters/Shadow Shaman\" NotJinu",
+          "Delimiter": "🐬"
         }
       ],
       "Priority": "Late+100"
