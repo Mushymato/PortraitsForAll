@@ -1,3 +1,4 @@
+using System.Net;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Text;
@@ -252,6 +253,12 @@ public sealed class ModEntry : Mod
         {
             Log(error, LogLevel.Warn);
             return null;
+        }
+
+        // workaround maritime secrets also looking for :
+        if (trimDelim != null && trimDelim[0] == 'u' && trimDelim.Length > 1)
+        {
+            trimDelim = new(Encoding.BigEndianUnicode.GetChars(Convert.FromHexString(trimDelim[1..])));
         }
 
         Texture2D? portrait;
