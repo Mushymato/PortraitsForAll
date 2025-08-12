@@ -39,6 +39,7 @@ public sealed class ModEntry : Mod
 
     /// <summary>SimpleNonVillagerDialogues delim</summary>
     private const string SNVDDelim = "||";
+    private const string SNVDAssetName = "Strings\\SimpleNonVillagerDialogues";
     private static readonly int SNVDDelimWidth = SNVDDelim.AsSpan().Length;
 
     /// <summary>Static monitor for logging in harmony postfix</summary>
@@ -130,7 +131,7 @@ public sealed class ModEntry : Mod
 
     private void OnAssetRequested(object? sender, AssetRequestedEventArgs e)
     {
-        if (e.NameWithoutLocale.IsEquivalentTo("Strings\\SimpleNonVillagerDialogues"))
+        if (e.NameWithoutLocale.IsEquivalentTo(SNVDAssetName))
         {
             e.Edit(Edit_StringsSimpleNonVillagerDialogues, AssetEditPriority.Late + 200);
         }
@@ -285,7 +286,10 @@ public sealed class ModEntry : Mod
         speaker.CurrentDialogue.Clear();
         portraitField.SetValue(speaker, portrait);
         speaker.displayName = displayName;
+
+#if DEBUG
         Log($"Convert: '{string.Join(',', dialogues)}' -> '{final}'");
+#endif
 
         return new(speaker, final, final);
     }
