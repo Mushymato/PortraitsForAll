@@ -1,4 +1,5 @@
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using System.Text;
 using HarmonyLib;
 using Microsoft.Xna.Framework;
@@ -34,20 +35,29 @@ public sealed class ModEntry : Mod
     /// <summary>When this is the second argument, use the trimmed string from the trim delim as display name./summary>
     public const string NameFromTrim = "@";
 
+    /// <summary>Dialogue linebreak syntax</summary>
+    private const string LineBreak = "#$b#";
+
+    /// <summary>Dialogue linebreak syntax length</summary>
+    private static readonly int LineBreakWidth = LineBreak.AsSpan().Length;
+
     /// <summary>Default NPC display name</summary>
     private const string QQQ = "???";
 
+    /// <summary>SimpleNonVillagerDialogues asset</summary>
+    private const string SNVDAssetName = "Strings\\SimpleNonVillagerDialogues";
+
     /// <summary>SimpleNonVillagerDialogues delim</summary>
     private const string SNVDDelim = "||";
-    private const string SNVDAssetName = "Strings\\SimpleNonVillagerDialogues";
+
+    /// <summary>SimpleNonVillagerDialogues delim width</summary>
     private static readonly int SNVDDelimWidth = SNVDDelim.AsSpan().Length;
 
     /// <summary>Static monitor for logging in harmony postfix</summary>
     private static IMonitor? mon;
 
-    /// <summary>Fake speaker NPC</summary>
-    private static readonly Lazy<NPC> SpeakerNPC =
-        new(() => new(null, Vector2.Zero, "", 0, QQQ, null, eventActor: false) { displayName = QQQ });
+    /// <summary>Portrait Speaker NPCs</summary>
+    private static readonly ConditionalWeakTable<Texture2D, NPC> speakerNPCPool = [];
 
     /// <summary>String builder for processed dialogue</summary>
     private static readonly Lazy<StringBuilder> SB = new(() => new StringBuilder());
@@ -91,6 +101,7 @@ public sealed class ModEntry : Mod
 
         mon = Monitor;
 
+        helper.Events.GameLoop.ReturnedToTitle += OnReturnedToTitle;
         helper.Events.Display.MenuChanged += OnMenuChanged;
         helper.Events.Content.AssetRequested += OnAssetRequested;
 
@@ -127,6 +138,11 @@ public sealed class ModEntry : Mod
                 LogLevel.Error
             );
         }
+    }
+
+    private void OnReturnedToTitle(object? sender, ReturnedToTitleEventArgs e)
+    {
+        speakerNPCPool.Clear();
     }
 
     private void OnAssetRequested(object? sender, AssetRequestedEventArgs e)
@@ -275,17 +291,24 @@ public sealed class ModEntry : Mod
                 span = span[(trimIdx + trimDelim.AsSpan().Length)..];
             }
             sb.Append(span.Trim());
-            sb.Append("#$b#");
+            sb.Append(LineBreak);
         }
-        sb.Remove(sb.Length - 4, 4);
+        sb.Remove(sb.Length - LineBreakWidth, LineBreakWidth);
         string final = sb.ToString();
         sb.Clear();
 
-        NPC speaker = SpeakerNPC.Value;
-        speaker.Name = QQQ;
-        speaker.CurrentDialogue.Clear();
-        portraitField.SetValue(speaker, portrait);
-        speaker.displayName = displayName;
+        if (speakerNPCPool.GetValue(portrait, CreateSpeakerNPC) is NPC speaker)
+        {
+            speaker.Name = QQQ;
+            speaker.CurrentDialogue.Clear();
+            portraitField.SetValue(speaker, portrait);
+            speaker.displayName = displayName;
+        }
+        else
+        {
+            Log($"Failed to make speaker NPC", LogLevel.Error);
+            return null;
+        }
 
 #if DEBUG
         Log($"Convert: '{string.Join(',', dialogues)}' -> '{final}'");
@@ -293,6 +316,9 @@ public sealed class ModEntry : Mod
 
         return new(speaker, final, final);
     }
+
+    private static NPC CreateSpeakerNPC(Texture2D key) =>
+        new(null, Vector2.Zero, "", 0, QQQ, null, eventActor: false) { displayName = QQQ };
 
     /// <summary>Inspect and possibly create a new replacement DialogueBox</summary>
     /// <param name="__instance"></param>
