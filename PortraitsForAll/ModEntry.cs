@@ -37,6 +37,10 @@ public sealed class ModEntry : Mod
     /// <summary>Default NPC display name</summary>
     private const string QQQ = "???";
 
+    /// <summary>SimpleNonVillagerDialogues delim</summary>
+    private const string SNVDDelim = "||";
+    private static readonly int SNVDDelimWidth = SNVDDelim.AsSpan().Length;
+
     /// <summary>Static monitor for logging in harmony postfix</summary>
     private static IMonitor? mon;
 
@@ -47,9 +51,27 @@ public sealed class ModEntry : Mod
     /// <summary>String builder for processed dialogue</summary>
     private static readonly Lazy<StringBuilder> SB = new(() => new StringBuilder());
 
-    /// <summary>Cached portrait field</summary>
+    /// <summary>Cached NPC.portrait field</summary>
     private static readonly FieldInfo portraitField = typeof(NPC).GetField(
         "portrait",
+        BindingFlags.NonPublic | BindingFlags.Instance
+    )!;
+
+    /// <summary>Cached Dialogue.isLastDialogueInteractive field</summary>
+    private static readonly FieldInfo isLastDialogueInteractiveField = typeof(Dialogue).GetField(
+        "isLastDialogueInteractive",
+        BindingFlags.NonPublic | BindingFlags.Instance
+    )!;
+
+    /// <summary>Cached Dialogue.playerResponses field</summary>
+    private static readonly FieldInfo playerResponsesField = typeof(Dialogue).GetField(
+        "playerResponses",
+        BindingFlags.NonPublic | BindingFlags.Instance
+    )!;
+
+    /// <summary>Cached portrait field</summary>
+    private static readonly MethodInfo setUpQuestionsMethod = typeof(DialogueBox).GetMethod(
+        "setUpQuestions",
         BindingFlags.NonPublic | BindingFlags.Instance
     )!;
 
@@ -57,25 +79,101 @@ public sealed class ModEntry : Mod
     private static bool InPostfix = false;
 
     /// <summary>Hold on to the dialogue boxes (original, new) briefly to swap on menu changed</summary>
-    private static (DialogueBox, DialogueBox)? SwapDialogueBox = new();
+    private static (DialogueBox, DialogueBox)? SwapDialogueBox_Instant = new();
 
     public override void Entry(IModHelper helper)
     {
+        if (portraitField == null)
+        {
+            throw new FieldAccessException("Failed to reflect into NPC.portrait, please report this error");
+        }
+
         mon = Monitor;
 
         helper.Events.Display.MenuChanged += OnMenuChanged;
+        helper.Events.Content.AssetRequested += OnAssetRequested;
 
         Harmony harmony = new(ModId);
-        HarmonyMethod postfix = new(typeof(ModEntry), nameof(DialogueBox_ctor_Postfix)) { priority = Priority.Last };
 
+        HarmonyMethod finalizer =
+            new(typeof(ModEntry), nameof(DialogueBox_strings_ctor_Finalizer)) { priority = Priority.Last };
         harmony.Patch(
             original: AccessTools.DeclaredConstructor(typeof(DialogueBox), [typeof(string)]),
-            postfix: postfix
+            finalizer: finalizer
         );
         harmony.Patch(
             original: AccessTools.DeclaredConstructor(typeof(DialogueBox), [typeof(List<string>)]),
-            postfix: postfix
+            finalizer: finalizer
         );
+
+        if (isLastDialogueInteractiveField != null || playerResponsesField != null)
+        {
+            harmony.Patch(
+                original: AccessTools.DeclaredConstructor(
+                    typeof(DialogueBox),
+                    [typeof(string), typeof(Response[]), typeof(int)]
+                ),
+                finalizer: new(typeof(ModEntry), nameof(DialogueBox_question_ctor_Finalizer))
+                {
+                    priority = Priority.Last,
+                }
+            );
+        }
+        else
+        {
+            Log(
+                "Failed to reflect into Dialouge.isLastDialogueInteractive and/or Dialogue.playerResponses, please report this error",
+                LogLevel.Error
+            );
+        }
+    }
+
+    private void OnAssetRequested(object? sender, AssetRequestedEventArgs e)
+    {
+        if (e.NameWithoutLocale.IsEquivalentTo("Strings\\SimpleNonVillagerDialogues"))
+        {
+            e.Edit(Edit_StringsSimpleNonVillagerDialogues, AssetEditPriority.Late + 200);
+        }
+    }
+
+    /// <summary>
+    /// Mass edit Strings\\SimpleNonVillagerDialogues
+    /// "blep blop🐬dialogue1||dialogue2" -> "blep blop🐬dialogue1||blep blop🐬dialogue2"
+    /// </summary>
+    /// <param name="asset"></param>
+    private void Edit_StringsSimpleNonVillagerDialogues(IAssetData asset)
+    {
+        IDictionary<string, string> data = asset.AsDictionary<string, string>().Data;
+        int idx;
+        ReadOnlySpan<char> span;
+        ReadOnlySpan<char> prefix;
+        StringBuilder sb = SB.Value;
+        sb.Clear();
+        foreach ((string key, string value) in data)
+        {
+            span = value.AsSpan();
+            if ((idx = span.IndexOf(PrefixDelim)) <= 1)
+            {
+                continue;
+            }
+
+            idx += PrefixDelimWidth;
+            prefix = span[..idx];
+            sb.Append(prefix);
+            span = span[idx..];
+            while ((idx = span.IndexOf(SNVDDelim)) > 0)
+            {
+                idx += SNVDDelimWidth;
+                sb.Append(span[..idx]);
+                sb.Append(prefix);
+                span = span[idx..];
+            }
+            if (span.Length > 0)
+            {
+                sb.Append(span);
+            }
+            data[key] = sb.ToString();
+        }
     }
 
     /// <summary>Swap in the new portrait DialogueBox</summary>
@@ -83,125 +181,174 @@ public sealed class ModEntry : Mod
     /// <param name="e"></param>
     private void OnMenuChanged(object? sender, MenuChangedEventArgs e)
     {
-        if (!SwapDialogueBox.HasValue)
-            return;
-        if (e.NewMenu == SwapDialogueBox.Value.Item1)
+        // instant swap to the static menu
+        if (SwapDialogueBox_Instant.HasValue && e.NewMenu == SwapDialogueBox_Instant.Value.Item1)
         {
-            Game1.activeClickableMenu = SwapDialogueBox.Value.Item2;
-            SwapDialogueBox = null;
+            Game1.activeClickableMenu = SwapDialogueBox_Instant.Value.Item2;
+            SwapDialogueBox_Instant = null;
         }
     }
 
-    /// <summary>Inspect and possibly create a new replacement DialogueBox</summary>
-    /// <param name="sender"></param>
-    /// <param name="e"></param>
-    private static void DialogueBox_ctor_Postfix(DialogueBox __instance)
+    /// <summary>Try and make the portrait dialogue</summary>
+    /// <param name="curr"></param>
+    /// <param name="dialogues"></param>
+    /// <returns></returns>
+    private static Dialogue? TryMakePortraitDialogue(string curr, List<string> dialogues)
     {
-        if (InPostfix || __instance.isPortraitBox())
-            return;
-
         int idx;
         ReadOnlySpan<char> span;
+        StringBuilder sb = SB.Value;
+        sb.Clear();
+
+        span = curr.Replace(Environment.NewLine, "").AsSpan();
+        if ((idx = span.IndexOf(PrefixDelim)) <= 1)
+        {
+            return null;
+        }
+        string[] args = ArgUtility.SplitBySpaceQuoteAware(span[..idx].ToString());
+        if (
+            !ArgUtility.TryGet(
+                args,
+                0,
+                out string speakerRef,
+                out string error,
+                allowBlank: false,
+                name: "string speakerRef"
+            )
+            || !ArgUtility.TryGet(
+                args,
+                1,
+                out string? speakerName,
+                out error,
+                allowBlank: false,
+                name: "string speakerName"
+            )
+            || !ArgUtility.TryGetOptional(
+                args,
+                2,
+                out string? trimDelim,
+                out error,
+                allowBlank: false,
+                name: "string trimDelim"
+            )
+        )
+        {
+            Log(error, LogLevel.Warn);
+            return null;
+        }
+
+        Texture2D? portrait;
+        string? displayName = null;
+        if (speakerRef == NPCRef)
+        {
+            NPC? realNPC = Game1.getCharacterFromName<NPC>(speakerName);
+            if (realNPC == null)
+            {
+                Log($"Failed to find NPC '{speakerName}'", LogLevel.Warn);
+                return null;
+            }
+            portrait = realNPC.Portrait;
+            displayName = realNPC.getName();
+        }
+        else if (Game1.content.DoesAssetExist<Texture2D>(speakerRef))
+        {
+            portrait = Game1.content.Load<Texture2D>(speakerRef);
+            if (speakerName != NameFromTrim)
+                displayName = TokenParser.ParseText(speakerName);
+        }
+        else
+        {
+            Log($"Portrait '{speakerRef}' is invalid", LogLevel.Warn);
+            return null;
+        }
+
+        int trimIdx;
+        foreach (string dlog in dialogues)
+        {
+            span = dlog.Replace(Environment.NewLine, "").AsSpan();
+            if ((trimIdx = span.IndexOf(PrefixDelim)) > -1)
+                span = span[(trimIdx + PrefixDelimWidth)..];
+            if (trimDelim != null && (trimIdx = span.IndexOf(trimDelim)) > -1)
+            {
+                displayName ??= span[..trimIdx].ToString();
+                span = span[(trimIdx + trimDelim.AsSpan().Length)..];
+            }
+            sb.Append(span.Trim());
+            sb.Append("#$b#");
+        }
+        sb.Remove(sb.Length - 4, 4);
+        string final = sb.ToString();
+        sb.Clear();
+
+        NPC speaker = SpeakerNPC.Value;
+        speaker.Name = QQQ;
+        speaker.CurrentDialogue.Clear();
+        portraitField.SetValue(speaker, portrait);
+        speaker.displayName = displayName;
+        Log($"Convert: '{string.Join(',', dialogues)}' -> '{final}'");
+
+        return new(speaker, final, final);
+    }
+
+    /// <summary>Inspect and possibly create a new replacement DialogueBox</summary>
+    /// <param name="__instance"></param>
+    private static void DialogueBox_strings_ctor_Finalizer(DialogueBox __instance)
+    {
+        if (InPostfix)
+            return;
+
         foreach (string dialogue in __instance.dialogues)
         {
-            span = dialogue.Replace(Environment.NewLine, "").AsSpan();
-            if ((idx = span.IndexOf(PrefixDelim)) <= 1)
+            if (TryMakePortraitDialogue(dialogue, __instance.dialogues) is Dialogue charaDialogue)
             {
-                continue;
+                InPostfix = true;
+                DialogueBox charaDialogueBox = new(charaDialogue);
+                SwapDialogueBox_Instant = new(__instance, charaDialogueBox);
+                InPostfix = false;
+                return;
             }
-            string[] args = ArgUtility.SplitBySpaceQuoteAware(span[..idx].ToString());
-            if (
-                !ArgUtility.TryGet(
-                    args,
-                    0,
-                    out string speakerRef,
-                    out string error,
-                    allowBlank: false,
-                    name: "string speakerRef"
-                )
-                || !ArgUtility.TryGet(
-                    args,
-                    1,
-                    out string? speakerName,
-                    out error,
-                    allowBlank: false,
-                    name: "string speakerName"
-                )
-                || !ArgUtility.TryGetOptional(
-                    args,
-                    2,
-                    out string? trimDelim,
-                    out error,
-                    allowBlank: false,
-                    name: "string trimDelim"
-                )
-            )
-            {
-                Log(error, LogLevel.Warn);
-                continue;
-            }
+        }
+    }
 
-            Texture2D? portrait;
-            string? displayName = null;
-            if (speakerRef == NPCRef)
-            {
-                NPC? realNPC = Game1.getCharacterFromName<NPC>(speakerName);
-                if (realNPC == null)
-                {
-                    Log($"Failed to find NPC '{speakerName}'", LogLevel.Warn);
-                    continue;
-                }
-                portrait = realNPC.Portrait;
-                displayName = realNPC.getName();
-            }
-            else if (Game1.content.DoesAssetExist<Texture2D>(speakerRef))
-            {
-                portrait = Game1.content.Load<Texture2D>(speakerRef);
-                if (speakerName != NameFromTrim)
-                    displayName = TokenParser.ParseText(speakerName);
-            }
-            else
-            {
-                Log($"Portrait '{speakerRef}' is invalid", LogLevel.Warn);
-                continue;
-            }
+    /// <summary>Inspect and possibly create a new replacement DialogueBox for question dialogues</summary>
+    /// <param name="__instance"></param>
+    private static void DialogueBox_question_ctor_Finalizer(DialogueBox __instance)
+    {
+        if (InPostfix || __instance.dialogues.Count < 1)
+            return;
 
-            StringBuilder sb = SB.Value;
-            sb.Clear();
-            int trimIdx;
-            foreach (string dlog in __instance.dialogues)
-            {
-                span = dlog.Replace(Environment.NewLine, "").AsSpan();
-                if ((trimIdx = span.IndexOf(PrefixDelim)) > -1)
-                    span = span[(trimIdx + PrefixDelimWidth)..];
-                if (trimDelim != null && (trimIdx = span.IndexOf(trimDelim)) > -1)
-                {
-                    displayName ??= span[..trimIdx].ToString();
-                    span = span[(trimIdx + trimDelim.AsSpan().Length)..];
-                }
-                sb.Append(span.Trim());
-                sb.Append("#$b#");
-            }
-            sb.Remove(sb.Length - 4, 4);
-            string final = sb.ToString();
-
-            NPC speaker = SpeakerNPC.Value;
-            speaker.Name = QQQ;
-            speaker.CurrentDialogue.Clear();
-            portraitField.SetValue(speaker, portrait);
-            speaker.displayName = displayName;
-
-#if DEBUG
-            Log($"Convert: '{string.Join(',', __instance.dialogues)}' -> '{final}'");
-#endif
-
+        if (TryMakePortraitDialogue(__instance.dialogues[0], __instance.dialogues) is Dialogue charaDialogue)
+        {
             InPostfix = true;
-            Dialogue charaDialogue = new(speaker, final, final);
             DialogueBox charaDialogueBox = new(charaDialogue);
-            SwapDialogueBox = new(__instance, charaDialogueBox);
-            InPostfix = false;
 
-            break;
+            // Extremely cursed way of forcing a location question dialogue in characterDialogue mode
+            // First, set all the stuff for a character question dialogue (i.e. $q)
+            // Then, use DialogueLine.SideEffects and go back to location question dialogue 1 tick after the dialogue is processed
+            charaDialogue.dialogues.Add(
+                new DialogueLine(
+                    "{",
+                    () => DelayedAction.functionAfterDelay(() => charaDialogueBox.characterDialogue = null, 0)
+                )
+            );
+            charaDialogue.dialogues.Add(new DialogueLine(" "));
+            charaDialogue.isCurrentStringContinuedOnNextScreen = true;
+            isLastDialogueInteractiveField.SetValue(charaDialogue, true);
+            playerResponsesField.SetValue(
+                charaDialogue,
+                __instance
+                    .responses.Select(resp => new NPCDialogueResponse(
+                        resp.responseKey,
+                        0,
+                        resp.responseKey,
+                        resp.responseText
+                    ))
+                    .ToList()
+            );
+
+            SwapDialogueBox_Instant = new(__instance, charaDialogueBox);
+            InPostfix = false;
+            return;
         }
     }
 

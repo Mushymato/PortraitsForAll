@@ -60,7 +60,32 @@
           ],
           "Value": "LooseSprites/temporary_sprites_1 @ :",
           "Delimiter": "🐬"
+        },
+        {
+          "Operation": "Prepend",
+          "Target": [
+            "Entries",
+            "Club_ClubSeller",
+          ],
+          "Value": "\"Characters/Monsters/Shadow Shaman\" NotJinu",
+          "Delimiter": "🐬"
         }
+      ],
+      "Priority": "Late+100"
+    },
+    {
+      "Action": "EditData",
+      "Target": "Strings/SimpleNonVillagerDialogues",
+      "TextOperations": [
+        {
+          "Operation": "Prepend",
+          "Target": [
+            "Entries",
+            "derby_contestent0"
+          ],
+          "Value": "Characters/Assorted_Fishermen @ :",
+          "Delimiter": "🐬"
+        },
       ],
       "Priority": "Late+100"
     }
