@@ -218,7 +218,8 @@ public sealed class ModEntry : Mod
         StringBuilder sb = SB.Value;
         sb.Clear();
 
-        span = curr.Replace(Environment.NewLine, "").AsSpan();
+        curr = curr.Replace(Environment.NewLine, "");
+        span = curr.AsSpan();
         if ((idx = span.IndexOf(PrefixDelim)) <= 1)
         {
             return null;
@@ -255,12 +256,6 @@ public sealed class ModEntry : Mod
             return null;
         }
 
-        // workaround maritime secrets also looking for :
-        if (trimDelim != null && trimDelim[0] == 'u' && trimDelim.Length > 1)
-        {
-            trimDelim = new(Encoding.BigEndianUnicode.GetChars(Convert.FromHexString(trimDelim[1..])));
-        }
-
         Texture2D? portrait;
         string? displayName = null;
         if (speakerRef == NPCRef)
@@ -286,16 +281,44 @@ public sealed class ModEntry : Mod
             return null;
         }
 
+        // workaround maritime secrets also looking for :
+        // also workaround maritime secrets putting : instead of ： back
+        List<char[]>? trimDelims = null;
+        if (trimDelim != null)
+        {
+            trimDelims = [];
+            ReadOnlySpan<char> trimDelimSpan = trimDelim.AsSpan();
+            for (int i = 0; i < trimDelimSpan.Length - 4; i += 5)
+            {
+                if (trimDelimSpan[i] == 'u')
+                {
+                    trimDelims.Add(
+                        Encoding.BigEndianUnicode.GetChars(Convert.FromHexString(trimDelimSpan.Slice(i + 1, 4)))
+                    );
+                }
+            }
+            if (trimDelims.Count == 0)
+            {
+                trimDelims = [trimDelim.ToArray()];
+            }
+        }
+
         int trimIdx;
         foreach (string dlog in dialogues)
         {
             span = dlog.Replace(Environment.NewLine, "").AsSpan();
             if ((trimIdx = span.IndexOf(PrefixDelim)) > -1)
                 span = span[(trimIdx + PrefixDelimWidth)..];
-            if (trimDelim != null && (trimIdx = span.IndexOf(trimDelim)) > -1)
+            if (trimDelims != null)
             {
-                displayName ??= span[..trimIdx].ToString();
-                span = span[(trimIdx + trimDelim.AsSpan().Length)..];
+                foreach (char[] tDelim in trimDelims)
+                {
+                    if ((trimIdx = span.IndexOf(tDelim)) > -1)
+                    {
+                        displayName ??= span[..trimIdx].ToString();
+                        span = span[(trimIdx + tDelim.AsSpan().Length)..];
+                    }
+                }
             }
             sb.Append(span.Trim());
             sb.Append(LineBreak);
@@ -318,7 +341,7 @@ public sealed class ModEntry : Mod
         }
 
 #if DEBUG
-        Log($"Convert: '{string.Join(',', dialogues)}' -> '{final}'");
+        Log($"Convert: '{curr}' -> '{final}'");
 #endif
 
         return new(speaker, final, final);
