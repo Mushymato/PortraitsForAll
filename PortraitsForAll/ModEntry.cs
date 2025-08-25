@@ -51,8 +51,11 @@ public sealed class ModEntry : Mod
     /// <summary>SimpleNonVillagerDialogues delim</summary>
     private const string SNVDDelim = "||";
 
-    /// <summary>SimpleNonVillagerDialogues delim width</summary>
-    private static readonly int SNVDDelimWidth = SNVDDelim.AsSpan().Length;
+    /// <summary>SimpleNonVillagerDialogues asset</summary>
+    private const string StringsLocationsAssetName = "Strings\\Locations";
+
+    /// <summary>SimpleNonVillagerDialogues delim</summary>
+    private const string GourmandDelim = "|";
 
     /// <summary>Static monitor for logging in harmony postfix</summary>
     private static IMonitor? mon;
@@ -152,6 +155,31 @@ public sealed class ModEntry : Mod
         {
             e.Edit(Edit_StringsSimpleNonVillagerDialogues, AssetEditPriority.Late + 200);
         }
+        if (e.NameWithoutLocale.IsEquivalentTo(StringsLocationsAssetName))
+        {
+            e.Edit(Edit_StringsLocations, AssetEditPriority.Late + 200);
+        }
+    }
+
+    private void Edit_StringsLocations(IAssetData asset)
+    {
+        SB.Value.Clear();
+        IDictionary<string, string> data = asset.AsDictionary<string, string>().Data;
+        foreach ((string key, string value) in data)
+        {
+            if (key.StartsWith("Gourmand_Request_"))
+                MassSplitAndPrepend(key, value, data, GourmandDelim);
+        }
+    }
+
+    private void Edit_StringsSimpleNonVillagerDialogues(IAssetData asset)
+    {
+        SB.Value.Clear();
+        IDictionary<string, string> data = asset.AsDictionary<string, string>().Data;
+        foreach ((string key, string value) in data)
+        {
+            MassSplitAndPrepend(key, value, data, SNVDDelim);
+        }
     }
 
     /// <summary>
@@ -159,39 +187,42 @@ public sealed class ModEntry : Mod
     /// "blep blop🐬dialogue1||dialogue2" -> "blep blop🐬dialogue1||blep blop🐬dialogue2"
     /// </summary>
     /// <param name="asset"></param>
-    private void Edit_StringsSimpleNonVillagerDialogues(IAssetData asset)
+    private static void MassSplitAndPrepend(
+        string key,
+        string value,
+        IDictionary<string, string> data,
+        string specificDelim
+    )
     {
-        IDictionary<string, string> data = asset.AsDictionary<string, string>().Data;
         int idx;
         ReadOnlySpan<char> span;
         ReadOnlySpan<char> prefix;
         StringBuilder sb = SB.Value;
-        sb.Clear();
-        foreach ((string key, string value) in data)
-        {
-            span = value.AsSpan();
-            if ((idx = span.IndexOf(PrefixDelim)) <= 1)
-            {
-                continue;
-            }
+        int delimWidth = specificDelim.AsSpan().Length;
 
-            idx += PrefixDelimWidth;
-            prefix = span[..idx];
+        span = value.AsSpan();
+        if ((idx = span.IndexOf(PrefixDelim)) <= 1)
+        {
+            return;
+        }
+
+        idx += PrefixDelimWidth;
+        prefix = span[..idx];
+        sb.Append(prefix);
+        span = span[idx..];
+        while ((idx = span.IndexOf(specificDelim)) > 0)
+        {
+            idx += delimWidth;
+            sb.Append(span[..idx]);
             sb.Append(prefix);
             span = span[idx..];
-            while ((idx = span.IndexOf(SNVDDelim)) > 0)
-            {
-                idx += SNVDDelimWidth;
-                sb.Append(span[..idx]);
-                sb.Append(prefix);
-                span = span[idx..];
-            }
-            if (span.Length > 0)
-            {
-                sb.Append(span);
-            }
-            data[key] = sb.ToString();
         }
+        if (span.Length > 0)
+        {
+            sb.Append(span);
+        }
+        data[key] = sb.ToString();
+        sb.Clear();
     }
 
     /// <summary>Swap in the new portrait DialogueBox</summary>
@@ -219,6 +250,11 @@ public sealed class ModEntry : Mod
         sb.Clear();
 
         curr = curr.Replace(Environment.NewLine, "");
+
+#if DEBUG
+        Log($"Trying: '{curr}'");
+#endif
+
         span = curr.AsSpan();
         if ((idx = span.IndexOf(PrefixDelim)) <= 1)
         {
@@ -273,7 +309,16 @@ public sealed class ModEntry : Mod
         {
             portrait = Game1.content.Load<Texture2D>(speakerRef);
             if (speakerName != NameFromTrim)
-                displayName = TokenParser.ParseText(speakerName);
+            {
+                if (Game1.content.IsValidTranslationKey(speakerName))
+                {
+                    displayName = Game1.content.LoadString(speakerName);
+                }
+                else
+                {
+                    displayName = TokenParser.ParseText(speakerName);
+                }
+            }
         }
         else
         {
