@@ -111,10 +111,20 @@ public sealed class ModEntry : Mod
 
         Harmony harmony = new(ModId);
 
-        HarmonyMethod finalizer =
-            new(typeof(ModEntry), nameof(DialogueBox_strings_ctor_Finalizer)) { priority = Priority.Last };
+        HarmonyMethod finalizer = new(typeof(ModEntry), nameof(DialogueBox_strings_ctor_Finalizer))
+        {
+            priority = Priority.Last,
+        };
+
         harmony.Patch(
-            original: AccessTools.DeclaredConstructor(typeof(DialogueBox), [typeof(string)]),
+            original: AccessTools.DeclaredConstructor(
+                typeof(DialogueBox),
+                [typeof(string)] /* desktop */
+            )
+                ?? AccessTools.DeclaredConstructor(
+                    typeof(DialogueBox),
+                    [typeof(string), typeof(bool)] /* android */
+                ),
             finalizer: finalizer
         );
         harmony.Patch(
