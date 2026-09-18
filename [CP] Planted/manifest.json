@@ -1,0 +1,17 @@
+{
+  "Name": "debugPlanted",
+  "Author": "debug",
+  "Description": "debug",
+  "Version": "1.0.0",
+  "MinimumApiVersion": "4.0.0",
+  "UniqueID": "debugPlanted",
+  "ContentPackFor": {
+    "UniqueID": "Pathoschild.ContentPatcher"
+  },
+  "Dependencies": [
+    {
+      "UniqueID": "mushymato.PortraitsForAll",
+      "IsRequired": true
+    }
+  ]
+}
