@@ -97,6 +97,14 @@
         },
       ],
       "Priority": "Late+100"
-    }
+    },
+    {
+      "Action": "EditData",
+      "Target": "Strings/StringsFromCSFiles",
+      "Entries": {
+        "Fishing_Channel_Intro": "Portraits/Krobus_Trenchcoat FIBS🐬Thank you for tuning in to F.I.B.S., the Fishing Information Broadcast Service.#$action AddMail Current DolphINaF.ExtraPortraits_FIBS received#Despite our unfortunate name, you can rest assured that we provide only the most trustworthy information about this season's fishing opportunities.",
+      },
+      "Priority": "Late+100"
+    },
   ]
 }
